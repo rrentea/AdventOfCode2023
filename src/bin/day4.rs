@@ -1,22 +1,24 @@
+use std::collections::HashSet;
+
 use aoc2023::utils;
 use nom::{
     bytes::complete::tag,
-    character::complete::digit1,
-    multi::{many0, many1, separated_list1},
+    character::complete::{digit1, space1},
+    multi::separated_list1,
     sequence::{delimited, preceded, separated_pair, tuple},
     IResult,
 };
 
 fn game(input: &str) -> IResult<&str, u32> {
-    let (res, id) = preceded(tuple((tag("Card"), many0(tag(" ")))), digit1)(input)?;
+    let (res, id) = preceded(tuple((tag("Card"), space1)), digit1)(input)?;
     Ok((res, id.parse::<u32>().unwrap()))
 }
 
 fn numbers(input: &str) -> IResult<&str, (Vec<u32>, Vec<u32>)> {
     let (res, (winning, owned)) = separated_pair(
-        separated_list1(many1(tag(" ")), digit1),
-        delimited(many1(tag(" ")), tag("|"), many1(tag(" "))),
-        separated_list1(many1(tag(" ")), digit1),
+        separated_list1(space1, digit1),
+        delimited(space1, tag("|"), space1),
+        separated_list1(space1, digit1),
     )(input)?;
     Ok((
         res,
@@ -33,17 +35,21 @@ fn numbers(input: &str) -> IResult<&str, (Vec<u32>, Vec<u32>)> {
     ))
 }
 
-fn parse_card(line: &str) -> IResult<&str, (u32, Vec<u32>, Vec<u32>)> {
+fn parse_card(line: &str) -> IResult<&str, (u32, HashSet<u32>, HashSet<u32>)> {
     let (res, (id, (winning, owned))) =
-        separated_pair(game, preceded(tag(":"), many0(tag(" "))), numbers)(line)?;
-    Ok((res, (id, winning, owned)))
+        separated_pair(game, preceded(tag(":"), space1), numbers)(line)?;
+    Ok((
+        res,
+        (
+            id,
+            HashSet::from_iter(winning.iter().cloned()),
+            HashSet::from_iter(owned.iter().cloned()),
+        ),
+    ))
 }
 
-fn points(winning: Vec<u32>, owned: Vec<u32>) -> i32 {
-    let n = owned
-        .iter()
-        .filter(|number| winning.contains(number))
-        .count();
+fn points(winning: HashSet<u32>, owned: HashSet<u32>) -> i32 {
+    let n = winning.intersection(&owned).count();
     if n == 0 {
         0
     } else {
@@ -51,17 +57,18 @@ fn points(winning: Vec<u32>, owned: Vec<u32>) -> i32 {
     }
 }
 
-fn score(cards: &Vec<(Vec<u32>, Vec<u32>)>, index: usize) -> u32 {
-    let (winning, owned) = &cards[index];
-    let n = owned
+fn score(cards: &Vec<(HashSet<u32>, HashSet<u32>)>) -> u32 {
+    let mut cards_counter = vec![1; cards.len()];
+    cards
         .iter()
-        .filter(|number| winning.contains(number))
-        .count();
-    if n == 0 {
-        1
-    } else {
-        1 + (1..=n).map(|i| score(cards, index + i)).sum::<u32>()
-    }
+        .enumerate()
+        .for_each(|(index, (winning, owned))| {
+            let n = winning.intersection(owned).count();
+            for i in 1..=n {
+                cards_counter[index + i] += cards_counter[index];
+            }
+        });
+    cards_counter.iter().sum()
 }
 
 fn main() {
@@ -75,14 +82,13 @@ fn main() {
                 .sum();
             println!("{}", sum);
 
-            let cards: Vec<(Vec<u32>, Vec<u32>)> = content
+            let cards: Vec<(HashSet<u32>, HashSet<u32>)> = content
                 .lines()
                 .map(|line| parse_card(line).unwrap())
                 .map(|(_res, (_id, winning, owned))| (winning, owned))
                 .collect();
 
-            let sum: u32 = (0..cards.len()).map(|index| score(&cards, index)).sum();
-            println!("{}", sum);
+            println!("{}", score(&cards));
         }
         Err(err) => {
             eprintln!("Error reading file: {}", err);
